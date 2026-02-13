@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Vehicle Booking Tool</title>
+    <style>
+        /* 简单美化样式，提升体验 */
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        .login-section, .frequency-section {
+            margin-bottom: 15px;
+            padding: 10px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f5f5f5;
+        }
+        input, select {
+            padding: 6px;
+            margin: 0 5px;
+            width: 150px;
+        }
+        button {
+            padding: 6px 12px;
+            margin: 0 3px;
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+            color: white;
+        }
+        .btn-add {
+            background-color: #28a745;
+        }
+        .btn-remove {
+            background-color: #dc3545;
+        }
+        .btn-start {
+            background-color: #007bff;
+            padding: 10px 20px;
+            font-size: 16px;
+        }
+        .footer-bar {
+            margin-top: 15px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h3 style="margin-top:0; margin-bottom: 20px;">Container List</h3>
+
+        <!-- 登录信息输入框 -->
+        <div class="login-section">
+            <div class="login-label">
+                <span>🧍‍♂️ Account :</span>
+                <input type="text" id="username" placeholder="Your username" value="">
+                <input type="password" id="password" placeholder="Your password" value="">
+            </div>
+        </div>
+
+        <!-- 刷新频率输入框 -->
+        <div class="frequency-section">
+            <div class="frequency-label">
+                <span>⏱️ Refresh Frequency(s) :</span>
+                <input type="text" id="frequency" placeholder="e.g.: 1.5" value="">
+            </div>
+        </div>
+
+        <!-- 数据表格 -->
+        <table id="data-table">
+            <thead>
+                <tr>
+                    <th>ContainerId</th>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th style="width: 170px;">Action</th>
+                </tr>
+            </thead>
+            <tbody id="table-body">
+                <!-- 初始行 -->
+                <tr id="row-0">
+                    <td><input type="text" placeholder="Container Id" id="id-0"></td>
+                    <td><input type="text" placeholder="Date(e.g.: 31/09/2026:8(day/month/year:hour)" id="date-0"></td>
+                    <td>
+                        <select id="select-0">
+                            <option value="PickUp">Pick_Up</option>
+                            <option value="DropOff">Drop_Off</option>
+                        </select>
+                    </td>
+                    <td>
+                        <button class="btn btn-add" onclick="addRow()">➕ Add</button>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- 开始按钮 -->
+        <div class="footer-bar">
+            <button class="btn-start" onclick="startAction()">🚀 Start</button>
+        </div>
+    </div>
+
+    <script>
+        let rowCount = 1;  // 初始行是row-0，下一行从row-1开始
+
+        // 添加新行
+        function addRow() {
+            const tbody = document.getElementById('table-body');
+            const rowId = `row-${rowCount}`;
+            const idId = `id-${rowCount}`;
+            const dateId = `date-${rowCount}`;
+            const selectId = `select-${rowCount}`;
+
+            // 创建新行
+            const newRow = document.createElement('tr');
+            newRow.id = rowId;
+
+            // 1. ContainerId列
+            const td1 = document.createElement('td');
+            const input1 = document.createElement('input');
+            input1.type = 'text';
+            input1.placeholder = 'Container Id';
+            input1.id = idId;
+            td1.appendChild(input1);
+
+            // 2. Date列
+            const td2 = document.createElement('td');
+            const input2 = document.createElement('input');
+            input2.type = 'text';
+            input2.placeholder = 'Date';
+            input2.id = dateId;
+            td2.appendChild(input2);
+
+            // 3. Type列
+            const td3 = document.createElement('td');
+            const select3 = document.createElement('select');
+            select3.id = selectId;
+            const optionPU = document.createElement('option');
+            optionPU.value = 'PickUp';
+            optionPU.text = 'Pick_Up';
+            const optionDF = document.createElement('option');
+            optionDF.value = 'DropOff';
+            optionDF.text = 'Drop_Off';
+            select3.appendChild(optionPU);
+            select3.appendChild(optionDF);
+            td3.appendChild(select3);
+
+            // 4. 操作列（Add + Delete按钮）
+            const td4 = document.createElement('td');
+            const addBtn = document.createElement('button');
+            addBtn.className = 'btn btn-add';
+            addBtn.innerHTML = '➕ Add';
+            addBtn.onclick = addRow;  // 简化绑定
+
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'btn btn-remove';
+            removeBtn.innerHTML = '✖ Delete';
+            // 修复：通过this找到当前行，避免闭包引用错误
+            removeBtn.onclick = function() {
+                // this -> removeBtn -> td4 -> newRow
+                const currentRow = this.closest('tr');
+                if (currentRow) {
+                    tbody.removeChild(currentRow);
+                    // 可选：删除行后不重置rowCount，避免id重复
+                }
+            };
+
+            td4.appendChild(addBtn);
+            td4.appendChild(removeBtn);
+
+            // 组装新行并添加到表格
+            newRow.appendChild(td1);
+            newRow.appendChild(td2);
+            newRow.appendChild(td3);
+            newRow.appendChild(td4);
+            tbody.appendChild(newRow);
+
+            rowCount++;
+        }
+
+        // 开始提交数据
+        async function startAction() {
+            // 1. 获取登录信息
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value.trim();
+
+            // 2. 验证登录信息
+            if (!username || !password) {
+                alert('❌ 请填写完整的账号和密码！');
+                return;
+            }
+
+            // 3. 处理刷新频率（转为数值，默认1秒）
+            const frequencyInput = document.getElementById('frequency').value.trim();
+            let frequency = 1;  // 默认值
+            if (frequencyInput) {
+                frequency = parseFloat(frequencyInput);
+                if (isNaN(frequency) || frequency <= 0) {
+                    alert('❌ 刷新频率必须是大于0的数字（如1.5）！');
+                    return;
+                }
+            }
+
+            // 4. 收集表格数据
+            const rows = document.querySelectorAll('#table-body tr');
+            const tableData = [];
+            let hasValidData = false;
+
+            rows.forEach((row, index) => {
+                // 安全获取元素（避免空指针）
+                const idInput = row.querySelector('td:first-child input');
+                const dateInput = row.querySelector('td:nth-child(2) input');
+                const selectElement = row.querySelector('select');
+
+                const containerId = idInput ? idInput.value.trim() : '';
+                const date = dateInput ? dateInput.value.trim() : '';
+                const typeValue = selectElement ? (selectElement.value === 'PickUp' ? 0 : 1) : 0;
+
+                // 收集非空数据（可选：根据需求调整）
+                if (containerId && date) {
+                    tableData.push({ containerId, date, type: typeValue });
+                    hasValidData = true;
+                }
+            });
+
+            // 验证表格数据
+            if (!hasValidData) {
+                alert('❌ 请至少填写一行有效的ContainerId和Date！');
+                return;
+            }
+
+            // 5. 准备请求数据
+            const requestData = {
+                username: username,
+                password: password,
+                frequency: frequency,
+                bookings: tableData
+            };
+
+            console.log('请求数据:', requestData);
+
+            // 6. 发送AJAX请求
+            try {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', 'http://127.0.0.1:5000/book', true);
+                xhr.setRequestHeader('Content-Type', 'application/json');
+                xhr.setRequestHeader('Accept', 'application/json');
+
+                // 响应处理
+                xhr.onload = function() {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        try {
+                            const result = JSON.parse(xhr.responseText);
+                            alert(`✅ ${result.message || '任务已成功启动'}`);
+                            console.log('预订成功:', result);
+                        } catch (e) {
+                            alert('✅ 任务已成功启动（响应格式非JSON）');
+                        }
+                    } else {
+                        alert(`❌ 请求失败: ${xhr.status} - ${xhr.statusText}`);
+                    }
+                };
+
+                // 网络错误处理
+                xhr.onerror = function() {
+                    alert('❌ 连接失败！请确认：\n1. Flask服务是否运行在 http://127.0.0.1:5000 \n2. 无跨域限制');
+                };
+
+                // 发送请求
+                xhr.send(JSON.stringify(requestData));
+            } catch (error) {
+                alert(`❌ 发送请求时出错：${error.message}`);
+                console.error('请求错误:', error);
+            }
+        }
+    </script>
+</body>
+</html>
