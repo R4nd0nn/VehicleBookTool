@@ -7,6 +7,9 @@ from selenium.webdriver.support.ui import Select
 from flask import Flask, request, jsonify
 import threading
 
+from selenium.webdriver.common.action_chains import ActionChains
+
+
 app = Flask(__name__)
 
 
@@ -103,17 +106,42 @@ def auto_booking_func(data):
 
     # 此处添加container过程先忽略
 
-
-    add_containers_btn = driver.find_element(By.ID, "show_add_containers")
-    add_containers_btn.click()
-
     for add_container in add_containers:
+
+        add_containers_btn = driver.find_element(By.ID, "show_add_containers")
+        add_containers_btn.click()
 
         value_select = "IMPORT" if add_container['type'] == 0 else "EXPORT"
         # # 通过 value 选择
 
+        driver.execute_script("""
+            var select = document.getElementById('DIRECTION');
 
+            // 强制修改 display 属性
+            select.style.display = 'block';
+            select.style.visibility = 'visible';
+            select.style.opacity = '1';
 
+            // 也可以移除可能的内联样式
+            select.style.removeProperty('display');
+            select.style.removeProperty('visibility');
+            select.style.removeProperty('opacity');
+
+            // 如果有隐藏类，移除它
+            select.classList.remove('hidden', 'hide', 'invisible');
+
+            console.log('select 已强制显示');
+        """)
+
+        time.sleep(1)
+
+        select_btn = driver.find_element(By.NAME, 'CBIUploadConatinersForm___DIRECTION')
+        select_btn.click()
+
+        select = Select(driver.find_element(By.NAME, 'CBIUploadConatinersForm___DIRECTION'))
+        select.select_by_value(value_select)
+
+        # 验证方法1：获取当前选中的 option
         textarea = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.ID, "CBIUploadConatinersForm___CONTAINERS"))
         )
@@ -123,7 +151,12 @@ def auto_booking_func(data):
             EC.presence_of_element_located((By.ID, "cbi_add_containers_btn"))
         ).click()
 
+        driver.find_element(By.CLASS_NAME, "blockUI-close").click()
+
+        time.sleep(1)
     #
+
+    time.sleep(5)
     for add_container in containers:
         try:
             containerId = add_container['containerId']
@@ -170,9 +203,11 @@ def auto_booking_func(data):
             ).click()
 
             # 2. 重试直到zone可用
-
-        for i in range(10):
+        selected = False
+        i = 0
+        while not selected:
             # 检查zone是否可用
+            i = i + 1
             try:
                 zone_row = WebDriverWait(driver, 10).until(
                     EC.presence_of_element_located((By.ID, f"tr_zone_{select_container_element_time}"))
@@ -190,9 +225,10 @@ def auto_booking_func(data):
                     driver.execute_script("arguments[0].click();", select_button)
                     print(f"✅ Zone {select_container_element_time} 选择成功")
                     time.sleep(1)
+                    selected = True
                     break
                 else:
-                    print(f"刷新第{i + 1}次，Zone {select_container_element_time}不可用，每{fresh_frequency}秒刷新一次")
+                    print(f"刷新第{i}次，Zone {select_container_element_time}不可用，每{fresh_frequency}秒刷新一次")
                     time.sleep(fresh_frequency)
                     refresh = WebDriverWait(driver, 10).until(
                         EC.presence_of_element_located((By.ID, "SlotsRefresh"))
@@ -203,6 +239,8 @@ def auto_booking_func(data):
             except Exception as e:
                 driver.find_element(By.ID, "SlotsRefresh").click()
                 print(f"刷新第{i + 1}次，发生异常: " + e)
+
+    driver.find_element(By.ID, "Confirm").click()
 
     # driver.quit()
 
