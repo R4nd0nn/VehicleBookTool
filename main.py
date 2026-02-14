@@ -1,24 +1,51 @@
 import time
+import sys
+import os
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 import threading
 import logging
 
 app = Flask(__name__)
 
+
+# 获取打包后的资源路径
+def get_resource_path(relative_path):
+    """获取打包后的资源文件路径"""
+    try:
+        # PyInstaller创建临时文件夹_MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
+
+# 设置模板文件夹路径
+template_dir = get_resource_path('templates')
+app.template_folder = template_dir
+
 # Configure logging
+log_file_path = get_resource_path('booking_automation.log')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s',
                     handlers=[
-                        logging.FileHandler('booking_automation.log'),
+                        logging.FileHandler(log_file_path),
                         logging.StreamHandler()
                     ]
                     )
 
+
 # ==================== Flask Routes ====================
+@app.route('/')
+def index():
+    """Serve the frontend HTML page"""
+    return render_template('booking_page.html')
+
+
 @app.after_request
 def after_request(response):
     """Add CORS headers"""
@@ -334,6 +361,19 @@ def auto_booking_func(data):
 
 
 # ==================== Start Service ====================
+def open_browser():
+    """自动打开浏览器"""
+    import webbrowser
+    import time
+    time.sleep(1.5)  # 等待Flask完全启动
+    webbrowser.open('http://127.0.0.1:5000')
+
+
 if __name__ == "__main__":
-    logging.info("Flask service started at http://127.0.0.1:5000")
-    app.run(debug=True, port=5000)
+    logging.info("Starting Flask service...")
+
+    # 在新线程中打开浏览器
+    threading.Thread(target=open_browser, daemon=True).start()
+
+    # 启动Flask
+    app.run(debug=False, port=5000)  # 生产环境关闭debug
