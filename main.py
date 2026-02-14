@@ -6,15 +6,22 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from flask import Flask, request, jsonify
 import threading
-
-from selenium.webdriver.common.action_chains import ActionChains
-
+import logging
 
 app = Flask(__name__)
 
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s',
+                    handlers=[
+                        logging.FileHandler('booking_automation.log'),
+                        logging.StreamHandler()
+                    ]
+                    )
 
+# ==================== Flask Routes ====================
 @app.after_request
 def after_request(response):
+    """Add CORS headers"""
     response.headers.add('Access-Control-Allow-Origin', '*')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
     response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS, GET')
@@ -23,57 +30,63 @@ def after_request(response):
 
 @app.route('/book', methods=['POST', 'OPTIONS'])
 def book():
-    # 处理预检请求
+    """Handle booking request"""
     if request.method == 'OPTIONS':
         return '', 200
 
-    # 处理实际POST请求
     data = request.json
     thread = threading.Thread(target=auto_booking_func, args=(data,))
     thread.daemon = True
     thread.start()
-    return jsonify({'status': '任务已启动'})
+    return jsonify({'status': 'Task started'})
 
 
-def auto_booking_func(data):
-    usernameVBS = data['username']
-    passwordVBS = data['password']
-    fresh_frequency = data['frequency']
-
-    containers = []
-    for containerInfos in data['bookings']:
-        containerinfo = {'containerId': containerInfos['containerId'], 'date': containerInfos['date'], 'type': containerInfos['type']}
-        containers.append(containerinfo)
-
-    add_containers = containers.copy()
-    driver = webdriver.Chrome()
+# ==================== Selenium Automation Functions ====================
+def login_vbs(driver, username, password):
+    """Login to VBS system"""
+    logging.info("Starting VBS login")
 
     driver.get("https://www.1-stop.biz")
 
-    launch_btn = driver.find_element(By.XPATH, "//a[@href='https://www.1-stop.biz/launch']")
+    # Click Launch button
+    launch_btn = WebDriverWait(driver, 10).until(
+        EC.element_to_be_clickable((By.XPATH, "//a[@href='https://www.1-stop.biz/launch']"))
+    )
     launch_btn.click()
 
-    vehicle_booking_system_btn = driver.find_element(By.XPATH, "//a[@href='https://vbs.1-stop.biz/SignIn.aspx']")
-    vehicle_booking_system_btn.click()
+    # Click Vehicle Booking System
+    vbs_btn = WebDriverWait(driver, 10).until(
+        EC.element_to_be_clickable((By.XPATH, "//a[@href='https://vbs.1-stop.biz/SignIn.aspx']"))
+    )
+    vbs_btn.click()
 
-    handles = driver.window_handles
-    driver.switch_to.window(handles[-1])
+    # Switch to new window
+    driver.switch_to.window(driver.window_handles[-1])
 
-    username_inputBox = WebDriverWait(driver, 10).until(
+    # Enter username and password
+    username_input = WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.ID, "username"))
     )
-    username_inputBox.send_keys(usernameVBS)
+    username_input.send_keys(username)
 
-    password_inputBox = WebDriverWait(driver, 10).until(
+    password_input = WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.ID, "password"))
     )
-    password_inputBox.send_keys(passwordVBS)
+    password_input.send_keys(password)
 
-    action_btn = driver.find_element(
+    # Click Continue
+    continue_btn = driver.find_element(
         By.XPATH,
         "//button[text()='Continue' and not(contains(@class, 'ulp-hidden-form-submit-button'))]"
     )
-    action_btn.click()
+    continue_btn.click()
+
+    logging.info("Login successful")
+
+
+def select_facility(driver):
+    """Select facility"""
+    logging.info("Selecting facility: DP WORLD Port Botany")
 
     select_element = WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.ID, "vbs_new_selected_facilityid"))
@@ -81,170 +94,246 @@ def auto_booking_func(data):
     select = Select(select_element)
     select.select_by_visible_text("DP WORLD Port Botany")
 
-    accept_btn = driver.find_element(By.ID, "Accept")
+    # Click Accept
+    accept_btn = WebDriverWait(driver, 10).until(
+        EC.element_to_be_clickable((By.ID, "Accept"))
+    )
     accept_btn.click()
 
+
+def go_to_container_list(driver):
+    """Navigate to Container List page"""
+    logging.info("Navigating to Container List page")
+
     container_list_btn = WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.LINK_TEXT, "Container List"))
+        EC.element_to_be_clickable((By.LINK_TEXT, "Container List"))
     )
     container_list_btn.click()
 
+    # Wait for table to load
     WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.CSS_SELECTOR, "#CBItemsGrid"))
     )
 
+
+def get_existing_containers(driver):
+    """Get list of existing containers on the page"""
     container_links = driver.find_elements(
         By.CSS_SELECTOR,
         "#CBItemsGrid tbody tr td div div.link_box"
     )
+    return [link.text.strip() for link in container_links if link.text.strip()]
 
-    containers_in_page = [link.text.strip() for link in container_links if link.text.strip()]
 
-    for containerInfo in containers:
-        if containerInfo['containerId'] in containers_in_page:
-            add_containers.remove(containerInfo)
+def add_container_to_system(driver, container_info):
+    """Add a single container to the system"""
+    logging.info(f"Adding container: {container_info['containerId']}")
 
-    # 此处添加container过程先忽略
+    # Click add button
+    add_btn = WebDriverWait(driver, 10).until(
+        EC.element_to_be_clickable((By.ID, "show_add_containers"))
+    )
+    add_btn.click()
 
-    for add_container in add_containers:
+    # Handle select selection
+    value_select = "IMPORT" if container_info['type'] == 0 else "EXPORT"
 
-        add_containers_btn = driver.find_element(By.ID, "show_add_containers")
-        add_containers_btn.click()
+    # Force display select
+    driver.execute_script("""
+        var select = document.getElementById('DIRECTION');
+        select.style.display = 'block';
+        select.style.visibility = 'visible';
+        select.style.opacity = '1';
+        select.classList.remove('hidden', 'hide', 'invisible');
+    """)
+    time.sleep(0.5)
 
-        value_select = "IMPORT" if add_container['type'] == 0 else "EXPORT"
-        # # 通过 value 选择
+    # Select type
+    select = Select(driver.find_element(By.NAME, 'CBIUploadConatinersForm___DIRECTION'))
+    select.select_by_value(value_select)
 
-        driver.execute_script("""
-            var select = document.getElementById('DIRECTION');
+    # Enter Container ID
+    textarea = WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.ID, "CBIUploadConatinersForm___CONTAINERS"))
+    )
+    textarea.send_keys(container_info['containerId'])
 
-            // 强制修改 display 属性
-            select.style.display = 'block';
-            select.style.visibility = 'visible';
-            select.style.opacity = '1';
+    # Click add
+    WebDriverWait(driver, 10).until(
+        EC.element_to_be_clickable((By.ID, "cbi_add_containers_btn"))
+    ).click()
 
-            // 也可以移除可能的内联样式
-            select.style.removeProperty('display');
-            select.style.removeProperty('visibility');
-            select.style.removeProperty('opacity');
+    # Close popup
+    time.sleep(1)
+    driver.find_element(By.CLASS_NAME, "blockUI-close").click()
 
-            // 如果有隐藏类，移除它
-            select.classList.remove('hidden', 'hide', 'invisible');
+    logging.info(f"Container {container_info['containerId']} added successfully")
 
-            console.log('select 已强制显示');
-        """)
 
-        time.sleep(1)
+def select_containers_for_booking(driver, containers):
+    """Select containers for booking"""
+    logging.info("Starting container selection")
 
-        select_btn = driver.find_element(By.NAME, 'CBIUploadConatinersForm___DIRECTION')
-        select_btn.click()
-
-        select = Select(driver.find_element(By.NAME, 'CBIUploadConatinersForm___DIRECTION'))
-        select.select_by_value(value_select)
-
-        # 验证方法1：获取当前选中的 option
-        textarea = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, "CBIUploadConatinersForm___CONTAINERS"))
-        )
-        textarea.send_keys(add_container['containerId'])
-
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, "cbi_add_containers_btn"))
-        ).click()
-
-        driver.find_element(By.CLASS_NAME, "blockUI-close").click()
-
-        time.sleep(1)
-    #
-
-    time.sleep(5)
-    for add_container in containers:
+    for container in containers:
         try:
-            containerId = add_container['containerId']
-            # 行ID格式: CBIRowId_DRYU9575014_IMPORT
-            # 可以使用部分匹配
-            row_id_prefix = f"CBIRowId_{containerId}"
+            container_id = container['containerId']
+            row_id_prefix = f"CBIRowId_{container_id}"
 
-            # 找到包含目标Container的行
             row = driver.find_element(By.CSS_SELECTOR, f"tr[id^='{row_id_prefix}']")
-
-            # 在该行内找到Book列的checkbox（第20列）
             checkbox = row.find_element(By.CSS_SELECTOR, "td:nth-child(20) input[type='checkbox']")
 
-            # 如果未选中，则勾选
             if not checkbox.is_selected():
                 checkbox.click()
-                print(f"✅ 已勾选Container: {containerId}")
+                logging.info(f"Container selected: {container_id}")
             else:
-                print(f"ℹ️ Container: {containerId} 已经是选中状态")
+                logging.info(f"Container: {container_id} already selected")
 
         except Exception as e:
-            print(f"❌ 未找到Container: {containerId}, 错误: {e}")
+            logging.error(f"Container not found: {container.get('containerId')}, error: {e}")
 
-    start_book_btn = driver.find_element(By.ID, 'start_booking')
-    start_book_btn.click()
 
-    for book_container in containers:
-        select_container_element_id = "BCSCntrRow_" + book_container["containerId"] + "_IMPORT"
+def book_single_container(driver, container, fresh_frequency):
+    """Book a single container slot"""
+    container_id = container['containerId']
+    logging.info(f"Starting booking for container: {container_id}")
+
+    # Select container row
+    row_id = f"BCSCntrRow_{container_id}_IMPORT"
+    WebDriverWait(driver, 10).until(
+        EC.element_to_be_clickable((By.ID, row_id))
+    ).click()
+
+    # Parse date and time
+    date_parts = container['date'].split(":")
+    select_date = date_parts[0]
+    select_time = date_parts[1]
+
+    # Select date
+    try:
         WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, select_container_element_id))
+            EC.element_to_be_clickable((
+                By.XPATH, f"//div[@class='calendarbar-item calendarbar-day' and text()='{select_date}']"
+            ))
+        ).click()
+    except:
+        WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((
+                By.XPATH, f"//div[contains(@class, 'calendarbar-day') and contains(text(), '{select_date}')]"
+            ))
         ).click()
 
-        select_container_element_date = book_container["date"].split(":")[0]
-        select_container_element_time = book_container["date"].split(":")[1]
+    # Select zone
+    return select_zone_with_retry(driver, select_time, container['type'], fresh_frequency)
+
+
+def select_zone_with_retry(driver, zone_time, container_type, fresh_frequency):
+    """Select zone with retry mechanism"""
+    selected = False
+    retry_count = 0
+
+    while not selected:
+        retry_count += 1
         try:
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.XPATH,  # ⚠️ 注意这里是双括号
-                                                f"//div[@class='calendarbar-item calendarbar-day' and text()='{select_container_element_date}']"))
-            ).click()
-        except:
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.XPATH,  # ⚠️ 双括号
-                                                f"//div[contains(@class, 'calendarbar-day') and contains(text(), '{select_container_element_date}')]"))
-            ).click()
+            zone_row = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.ID, f"tr_zone_{zone_time}"))
+            )
 
-            # 2. 重试直到zone可用
-        selected = False
-        i = 0
-        while not selected:
-            # 检查zone是否可用
-            i = i + 1
+            pick_up_cell = WebDriverWait(zone_row, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "td.slots_cell:nth-child(2)"))
+            )
+
+            type_class = "pick_up_bg" if container_type == 0 else "drop_off_bg"
+
+            if pick_up_cell.find_elements(By.CLASS_NAME, type_class):
+                select_button = WebDriverWait(zone_row, 10).until(
+                    EC.presence_of_element_located((By.XPATH, ".//div[@class='link_box' and text()='Select']"))
+                )
+                driver.execute_script("arguments[0].click();", select_button)
+                logging.info(f"Zone {zone_time} selected successfully")
+                selected = True
+            else:
+                logging.info(f"Retry {retry_count}, Zone {zone_time} not available, refresh frequency {fresh_frequency}")
+                time.sleep(fresh_frequency)
+                refresh = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.ID, "SlotsRefresh"))
+                )
+                refresh.click()
+
+        except Exception as e:
+            logging.error(f"Retry {retry_count}, exception occurred: {str(e)}")
             try:
-                zone_row = WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.ID, f"tr_zone_{select_container_element_time}"))
-                )
-
-                pick_up_cell = WebDriverWait(zone_row, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "td.slots_cell:nth-child(2)"))
-                )
-
-                type_class = "pick_up_bg" if book_container["type"] == 0 else "drop_off_bg"
-                if pick_up_cell.find_elements(By.CLASS_NAME, type_class):
-                    select_button = WebDriverWait(zone_row, 10).until(
-                        EC.presence_of_element_located((By.XPATH, ".//div[@class='link_box' and text()='Select']"))
-                    )
-                    driver.execute_script("arguments[0].click();", select_button)
-                    print(f"✅ Zone {select_container_element_time} 选择成功")
-                    time.sleep(1)
-                    selected = True
-                    break
-                else:
-                    print(f"刷新第{i}次，Zone {select_container_element_time}不可用，每{fresh_frequency}秒刷新一次")
-                    time.sleep(fresh_frequency)
-                    refresh = WebDriverWait(driver, 10).until(
-                        EC.presence_of_element_located((By.ID, "SlotsRefresh"))
-                    )
-                    refresh.click()
-                    continue
-
-            except Exception as e:
                 driver.find_element(By.ID, "SlotsRefresh").click()
-                print(f"刷新第{i + 1}次，发生异常: " + e)
+            except:
+                pass
+            time.sleep(fresh_frequency)
 
-    driver.find_element(By.ID, "Confirm").click()
+    if not selected:
+        logging.error(f"Zone {zone_time} selection failed, exceeded max retries")
 
-    # driver.quit()
+    return selected
 
 
+def auto_booking_func(data):
+    """Main automation function"""
+    logging.info("Starting automated booking task")
+
+    # Parse data
+    username = data['username']
+    password = data['password']
+    fresh_frequency = float(data.get('frequency', 1))
+    containers = data['bookings']
+
+    driver = None
+    try:
+        driver = webdriver.Chrome()
+
+        # Login process
+        login_vbs(driver, username, password)
+        select_facility(driver)
+        go_to_container_list(driver)
+
+        # Get existing containers
+        existing_containers = get_existing_containers(driver)
+
+        # Add non-existing containers
+        containers_to_add = [c for c in containers if c['containerId'] not in existing_containers]
+
+        for container in containers_to_add:
+            add_container_to_system(driver, container)
+            time.sleep(1)
+
+        # Select containers for booking
+        select_containers_for_booking(driver, containers)
+
+        # Click start booking
+        start_btn = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.ID, "start_booking"))
+        )
+        start_btn.click()
+
+        # Book each container
+        for container in containers:
+            success = book_single_container(driver, container, fresh_frequency)
+            if not success:
+                logging.warning(f"Container {container['containerId']} booking failed")
+
+        # # Click Confirm
+        # WebDriverWait(driver, 10).until(
+        #     EC.element_to_be_clickable((By.ID, "Confirm"))
+        # ).click()
+
+        logging.info("All booking tasks completed")
+
+    except Exception as e:
+        logging.error(f"Automation task error: {str(e)}")
+        raise
+    finally:
+        if driver:
+            time.sleep(5)
+            # driver.quit()  # Close or not based on requirements
+
+
+# ==================== Start Service ====================
 if __name__ == "__main__":
-    print("Flask服务启动在 http://127.0.0.1:5000")
+    logging.info("Flask service started at http://127.0.0.1:5000")
     app.run(debug=True, port=5000)

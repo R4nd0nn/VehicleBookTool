@@ -117,7 +117,6 @@
         <!-- 开始按钮 -->
         <div class="footer-bar">
             <button class="btn-start" onclick="startAction()">🚀 Start</button>
-            <button class="btn-stop" onclick="stopAction()">❌ Stop</button>
         </div>
     </div>
 
@@ -295,41 +294,6 @@
             }
         }
 
-        async function stopAction() {
-            try {
-                const stop = {}
-                const xhr = new XMLHttpRequest();
-                xhr.open('POST', 'http://127.0.0.1:5000/stop', true);
-                xhr.setRequestHeader('Content-Type', 'application/json');
-                xhr.setRequestHeader('Accept', 'application/json');
-
-                // 响应处理
-                xhr.onload = function() {
-                    if (xhr.status >= 200 && xhr.status < 300) {
-                        try {
-                            const result = JSON.parse(xhr.responseText);
-                            alert(`✅ ${result.message || '任务已成功启动'}`);
-                            console.log('预订成功:', result);
-                        } catch (e) {
-                            alert('✅ 任务已成功启动（响应格式非JSON）');
-                        }
-                    } else {
-                        alert(`❌ 请求失败: ${xhr.status} - ${xhr.statusText}`);
-                    }
-                };
-
-                // 网络错误处理
-                xhr.onerror = function() {
-                    alert('❌ 连接失败！请确认：\n1. Flask服务是否运行在 http://127.0.0.1:5000 \n2. 无跨域限制');
-                };
-
-                // 发送请求
-                xhr.send(JSON.stringify(stop));
-            } catch (error) {
-                alert(`❌ 发送请求时出错：${error.message}`);
-                console.error('请求错误:', error);
-            }
-        }
     </script>
 </body>
 </html>
