@@ -103,8 +103,25 @@ def auto_booking_func(data):
 
     # 此处添加container过程先忽略
 
-    # add_containers_btn = driver.find_element(By.ID, "show_add_containers")
-    # add_containers_btn.click()
+
+    add_containers_btn = driver.find_element(By.ID, "show_add_containers")
+    add_containers_btn.click()
+
+    for add_container in add_containers:
+
+        value_select = "IMPORT" if add_container['type'] == 0 else "EXPORT"
+        # # 通过 value 选择
+
+
+
+        textarea = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, "CBIUploadConatinersForm___CONTAINERS"))
+        )
+        textarea.send_keys(add_container['containerId'])
+
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, "cbi_add_containers_btn"))
+        ).click()
 
     #
     for add_container in containers:
