@@ -111,15 +111,22 @@ def login_vbs(driver, username, password):
     logging.info("Login successful")
 
 
-def select_facility(driver):
+def select_facility(driver, facility_name):
     """Select facility"""
-    logging.info("Selecting facility: DP WORLD Port Botany")
+    logging.info(f"Selecting facility: {facility_name}")
 
     select_element = WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.ID, "vbs_new_selected_facilityid"))
     )
     select = Select(select_element)
-    select.select_by_visible_text("DP WORLD Port Botany")
+
+    facility_map = {
+        "dpw": "DP WORLD Port Botany",
+        "patrick": "Patrick Port Botany"
+    }
+
+    facility = facility_map.get(facility_name)  # 默认值
+    select.select_by_visible_text(facility)
 
     # Click Accept
     accept_btn = WebDriverWait(driver, 10).until(
@@ -173,7 +180,7 @@ def add_container_to_system(driver, container_info):
         select.style.opacity = '1';
         select.classList.remove('hidden', 'hide', 'invisible');
     """)
-    time.sleep(0.5)
+    time.sleep(1)
 
     # Select type
     select = Select(driver.find_element(By.NAME, 'CBIUploadConatinersForm___DIRECTION'))
@@ -309,6 +316,7 @@ def auto_booking_func(data):
     password = data['password']
     fresh_frequency = float(data.get('frequency', 1))
     containers = data['bookings']
+    facility = data['facility']
 
     driver = None
     try:
@@ -316,38 +324,147 @@ def auto_booking_func(data):
 
         # Login process
         login_vbs(driver, username, password)
-        select_facility(driver)
-        go_to_container_list(driver)
+        select_facility(driver,facility)
 
-        # Get existing containers
-        existing_containers = get_existing_containers(driver)
+        if facility == "dpw":
+            go_to_container_list(driver)
 
-        # Add non-existing containers
-        containers_to_add = [c for c in containers if c['containerId'] not in existing_containers]
+            # Get existing containers
+            existing_containers = get_existing_containers(driver)
 
-        for container in containers_to_add:
-            add_container_to_system(driver, container)
+            # Add non-existing containers
+            containers_to_add = [c for c in containers if c['containerId'] not in existing_containers]
+
+            for container in containers_to_add:
+                add_container_to_system(driver, container)
+                time.sleep(1)
+
+            WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.ID, "Refresh"))
+            ).click()
+
             time.sleep(1)
 
-        # Select containers for booking
-        select_containers_for_booking(driver, containers)
+            # Select containers for booking
+            select_containers_for_booking(driver, containers)
 
-        # Click start booking
-        start_btn = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.ID, "start_booking"))
-        )
-        start_btn.click()
+            # Click start booking
+            start_btn = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.ID, "start_booking"))
+            )
+            start_btn.click()
 
-        # Book each container
-        for container in containers:
-            success = book_single_container(driver, container, fresh_frequency)
-            if not success:
-                logging.warning(f"Container {container['containerId']} booking failed")
+            # Book each container
+            for container in containers:
+                success = book_single_container(driver, container, fresh_frequency)
+                if not success:
+                    logging.warning(f"Container {container['containerId']} booking failed")
 
-        # # Click Confirm
-        # WebDriverWait(driver, 10).until(
-        #     EC.element_to_be_clickable((By.ID, "Confirm"))
-        # ).click()
+            #此处注释可以不走到最终确认
+            # # Click Confirm
+            # WebDriverWait(driver, 10).until(
+            #     EC.element_to_be_clickable((By.ID, "Confirm"))
+            # ).click()
+        elif facility == "patrick":
+            # accept_btn = WebDriverWait(driver, 10).until(
+            #     EC.element_to_be_clickable((By.ID, "Accept"))
+            # )
+            # accept_btn.click()
+
+            time.sleep(5)
+
+            book_btn = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//a[@href='SearchBookSlots.aspx?mnitm=154142190']"))
+            )
+            book_btn.click()
+
+            type = "IMPORT" if containers['type'] == 0 else "EXPORT"
+
+            select_type = Select(driver.find_element(By.ID, "BOOKINGTYPE"))
+
+            # 通过 value 属性选中
+            select_type.select_by_value(type)
+
+            time.sleep(3)
+
+            select_date = Select(driver.find_element(By.ID, "BOOKINGDATE"))
+            select_date_time_group = containers['date'].split(":")[0].split("/")
+            select_date_input = select_date_time_group[2] + "-" + select_date_time_group[1] + "-" + select_date_time_group[0]
+            select_date.select_by_value(select_date_input)
+
+            search_btn = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.ID, "Search"))
+            )
+            search_btn.click()
+
+            # Switch to new window
+            driver.switch_to.window(driver.window_handles[-1])
+
+            order_times = []
+            for slot in containers['slots']:
+                order_times.append({
+                    "time":slot['time'],
+                    "count": slot['count']})
+
+            task_done = False
+            while not task_done:
+                for order_time in order_times[:]:  # 关键：使用 [:] 创建副本
+                    # 然后获取第二个td（可用票数）
+                    slots_xpath = f"//td[text()='{order_time['time']}' and not(@class)]/following-sibling::td[1]"
+                    slots_element = WebDriverWait(driver, 10).until(
+                        EC.presence_of_element_located((By.XPATH, slots_xpath))
+                    )
+                    slots_text = slots_element.text.strip()
+
+                    try:
+                        slots_int = int(slots_text)
+                    except ValueError:
+                        print(f"时段 {order_time['time']} 的可用票数格式错误: {slots_text}")
+                        continue
+
+                    if slots_int > 0:
+                        select_id = f"DDL_{select_date_input}_{order_time['time']}"
+
+                        try:
+                            timezone_select = Select(driver.find_element(By.ID, select_id))
+                        except:
+                            print(f"找不到select: {select_id}")
+                            continue
+
+                        need_count = int(order_time['count'])
+
+                        if slots_int >= need_count:
+                            # 可以满足全部需求
+                            timezone_select.select_by_value(str(need_count))
+
+                            timezone_book_btn = WebDriverWait(driver, 10).until(
+                                EC.element_to_be_clickable((By.ID, f"btnBook_{select_date_input}_{order_time['time']}"))
+                            )
+                            timezone_book_btn.click()
+
+                            continue_book_btn = WebDriverWait(driver, 10).until(
+                                EC.element_to_be_clickable((By.ID, "Continue"))
+                            )
+                            continue_book_btn.click()
+                            print(f"时段 {order_time['time']}: 成功预订 {need_count} 张票")
+                            order_times.remove(order_time)  # 从原列表删除
+                        else:
+                            # 只能预订部分
+                            timezone_select.select_by_value(str(slots_int))
+                            remaining = need_count - slots_int
+                            order_time['count'] = str(remaining)
+                            print(f"时段 {order_time['time']}: 预订 {slots_int} 张票，还需 {remaining} 张")
+                    else:
+                        print(f"时段 {order_time['time']} 无可预订票")
+
+                if len(order_times) == 0:
+                    task_done = True
+                else:
+                    time.sleep(fresh_frequency)
+                    refresh_btn = WebDriverWait(driver, 10).until(
+                        EC.element_to_be_clickable((By.ID, "refreshSlots_" + select_date_input))
+                    )
+                    refresh_btn.click()
 
         logging.info("All booking tasks completed")
 
