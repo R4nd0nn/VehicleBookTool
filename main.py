@@ -513,7 +513,7 @@ def auto_booking_func(data):
         if driver:
             time.sleep(5)
             driver.quit()  # Close or not based on requirements
-            sys.exit(0)  # 退出Python进程
+            os._exit(0)  # 退出Python进程
 
 
 # ==================== Start Service ====================
