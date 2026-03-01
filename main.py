@@ -146,7 +146,7 @@ def go_to_container_list(driver):
 
     # Wait for table to load
     WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, "#CBItemsGrid"))
+        EC.presence_of_element_located((By.CSS_SELECTOR, "#CBItemsGridHolder"))
     )
 
 
@@ -240,7 +240,7 @@ def book_single_container(driver, container, fresh_frequency):
     # Parse date and time
     date_parts = container['date'].split(":")
     select_date = date_parts[0]
-    select_time = date_parts[1]
+    select_time = date_parts[1].lstrip('0')
 
     # Select date
     try:
