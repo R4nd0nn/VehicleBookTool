@@ -9,6 +9,7 @@ from selenium.webdriver.support.ui import Select
 from flask import Flask, request, jsonify, render_template
 import threading
 import logging
+import datetime
 
 app = Flask(__name__)
 
@@ -29,14 +30,35 @@ def get_resource_path(relative_path):
 template_dir = get_resource_path('templates')
 app.template_folder = template_dir
 
-# Configure logging
-log_file_path = get_resource_path('booking_automation.log')
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s',
-                    handlers=[
-                        logging.FileHandler(log_file_path),
-                        logging.StreamHandler()
-                    ]
-                    )
+
+def get_log_path():
+    """获取日志文件路径，确保输出到exe同级目录"""
+    if getattr(sys, 'frozen', False):
+        # 打包成exe运行时：获取exe所在目录
+        exe_dir = os.path.dirname(sys.executable)
+    else:
+        # 开发环境运行时：当前目录
+        exe_dir = os.path.abspath(".")
+
+    # 确保目录存在
+    if not os.path.exists(exe_dir):
+        os.makedirs(exe_dir)
+
+    return os.path.join(exe_dir, 'booking_automation.log')
+
+
+# 使用新的日志路径
+log_file_path = get_log_path()
+
+# 配置logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file_path, encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
 
 
 # ==================== Flask Routes ====================
@@ -226,7 +248,7 @@ def select_containers_for_booking(driver, containers):
             logging.error(f"Container not found: {container.get('containerId')}, error: {e}")
 
 
-def book_single_container(driver, container, fresh_frequency):
+def book_single_container(driver, container, fresh_frequency, start_time):
     """Book a single container slot"""
     container_id = container['containerId']
     logging.info(f"Starting booking for container: {container_id}")
@@ -257,13 +279,18 @@ def book_single_container(driver, container, fresh_frequency):
         ).click()
 
     # Select zone
-    return select_zone_with_retry(driver, select_time, container['type'], fresh_frequency)
+    return select_zone_with_retry(driver, select_time, container['type'], fresh_frequency, start_time, container_id)
 
 
-def select_zone_with_retry(driver, zone_time, container_type, fresh_frequency):
+def select_zone_with_retry(driver, zone_time, container_type, fresh_frequency, start_time, container_id):
     """Select zone with retry mechanism"""
     selected = False
     retry_count = 0
+
+    book_time_gap_second = (start_time - datetime.datetime.now()).total_seconds()
+
+    if book_time_gap_second > 0:
+        time.sleep(book_time_gap_second)
 
     while not selected:
         retry_count += 1
@@ -283,15 +310,15 @@ def select_zone_with_retry(driver, zone_time, container_type, fresh_frequency):
                     EC.presence_of_element_located((By.XPATH, ".//div[@class='link_box' and text()='Select']"))
                 )
                 driver.execute_script("arguments[0].click();", select_button)
-                logging.info(f"Zone {zone_time} selected successfully")
+                logging.info(f"当前时间:{datetime.datetime.now()}, container：{container_id} 尝试预定{zone_time}点, 预定成功")
                 selected = True
             else:
-                logging.info(f"Retry {retry_count}, Zone {zone_time} not available, refresh frequency {fresh_frequency}")
-                time.sleep(fresh_frequency)
+                logging.info(f"当前时间:{datetime.datetime.now()}, container：{container_id} 尝试预定{zone_time}点, 但当前没有余量，准备第{retry_count}次重试")
                 refresh = WebDriverWait(driver, 10).until(
                     EC.element_to_be_clickable((By.ID, "SlotsRefresh"))
                 )
                 refresh.click()
+                time.sleep(fresh_frequency)
 
         except Exception as e:
             logging.error(f"Retry {retry_count}, exception occurred: {str(e)}")
@@ -317,6 +344,7 @@ def auto_booking_func(data):
     fresh_frequency = float(data.get('frequency', 1))
     containers = data['bookings']
     facility = data['facility']
+    start_time = datetime.datetime.fromisoformat(data['startTime'])
 
     driver = None
     try:
@@ -356,15 +384,15 @@ def auto_booking_func(data):
 
             # Book each container
             for container in containers:
-                success = book_single_container(driver, container, fresh_frequency)
+                success = book_single_container(driver, container, fresh_frequency, start_time)
                 if not success:
                     logging.warning(f"Container {container['containerId']} booking failed")
 
             #此处注释可以不走到最终确认
             # Click Confirm
-            WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.ID, "Confirm"))
-            ).click()
+            # WebDriverWait(driver, 10).until(
+            #     EC.element_to_be_clickable((By.ID, "Confirm"))
+            # ).click()
         elif facility == "patrick":
             # accept_btn = WebDriverWait(driver, 10).until(
             #     EC.element_to_be_clickable((By.ID, "Accept"))
@@ -391,6 +419,12 @@ def auto_booking_func(data):
             select_date_time_group = containers['date'].split(":")[0].split("/")
             select_date_input = select_date_time_group[2] + "-" + select_date_time_group[1] + "-" + select_date_time_group[0]
             select_date.select_by_value(select_date_input)
+
+            # Patrick的界面只能停留3分钟，所以在界面前开始等
+            book_time_gap_second = (start_time - datetime.datetime.now()).total_seconds()
+
+            if book_time_gap_second > 0:
+                time.sleep(book_time_gap_second)
 
             search_btn = WebDriverWait(driver, 10).until(
                 EC.element_to_be_clickable((By.ID, "Search"))
@@ -446,25 +480,25 @@ def auto_booking_func(data):
                                 EC.element_to_be_clickable((By.ID, "Continue"))
                             )
                             continue_book_btn.click()
-                            print(f"时段 {order_time['time']}: 成功预订 {need_count} 张票")
+                            logging.info(f"当前时间：{datetime.datetime.now()}, 时段 {order_time['time']}: 成功预订 {need_count} 张票")
                             order_times.remove(order_time)  # 从原列表删除
                         else:
                             # 只能预订部分
                             timezone_select.select_by_value(str(slots_int))
                             remaining = need_count - slots_int
                             order_time['count'] = str(remaining)
-                            print(f"时段 {order_time['time']}: 预订 {slots_int} 张票，还需 {remaining} 张")
+                            logging.info(f"当前时间：{datetime.datetime.now()}, 时段 {order_time['time']}: 预订 {slots_int} 张票，还需 {remaining} 张")
                     else:
-                        print(f"时段 {order_time['time']} 无可预订票")
+                        logging.info(f"当前时间：{datetime.datetime.now()}, 时段 {order_time['time']}: 无余票")
 
                 if len(order_times) == 0:
                     task_done = True
                 else:
-                    time.sleep(fresh_frequency)
                     refresh_btn = WebDriverWait(driver, 10).until(
                         EC.element_to_be_clickable((By.ID, "refreshSlots_" + select_date_input))
                     )
                     refresh_btn.click()
+                    time.sleep(fresh_frequency)
 
         logging.info("All booking tasks completed")
 

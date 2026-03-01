@@ -11,7 +11,7 @@
             padding: 20px;
             font-family: Arial, sans-serif;
         }
-        .login-section, .frequency-section, .facility_select {
+        .login-section, .frequency-section, .facility_select, .book-time-confirm {
             margin-bottom: 15px;
             padding: 10px;
             border: 1px solid #eee;
@@ -138,6 +138,13 @@
             <div class="frequency-label">
                 <span>⏱️ Refresh Frequency(s) :</span>
                 <input type="text" id="frequency" placeholder="e.g.: 1.5" value="">
+            </div>
+        </div>
+
+        <div class="book-time-confirm">
+            <div class="Book Start Time">
+                <span>⏱️ Book Start Time :</span>
+                <input type="datetime-local" id="book-start-date" class="book-time-input">
             </div>
         </div>
 
@@ -616,6 +623,8 @@
                 }
             }
 
+            const startTime = document.getElementById("book-start-date").value
+
             // 4. 获取选中的facility
             const facility = document.querySelector('input[name="facility"]:checked');
             if (!facility) {
@@ -667,6 +676,7 @@
                     username: username,
                     password: password,
                     frequency: frequency,
+                    startTime: startTime,
                     facility: facility_id,
                     bookings: bookings
                 };
@@ -738,6 +748,7 @@
                     password: password,
                     frequency: frequency,
                     facility: facility_id,
+                    startTime: startTime,
                     bookings: {
                         date: formattedDate,
                         type: typeValue,
