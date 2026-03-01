@@ -508,7 +508,7 @@ def auto_booking_func(data):
     finally:
         if driver:
             time.sleep(5)
-            # driver.quit()  # Close or not based on requirements
+            driver.quit()  # Close or not based on requirements
 
 
 # ==================== Start Service ====================
