@@ -390,9 +390,9 @@ def auto_booking_func(data):
 
             #此处注释可以不走到最终确认
             # Click Confirm
-            # WebDriverWait(driver, 10).until(
-            #     EC.element_to_be_clickable((By.ID, "Confirm"))
-            # ).click()
+            WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.ID, "Confirm"))
+            ).click()
         elif facility == "patrick":
             # accept_btn = WebDriverWait(driver, 10).until(
             #     EC.element_to_be_clickable((By.ID, "Accept"))
