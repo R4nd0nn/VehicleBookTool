@@ -503,12 +503,17 @@ def auto_booking_func(data):
         logging.info("All booking tasks completed")
 
     except Exception as e:
-        logging.error(f"Automation task error: {str(e)}")
-        raise
+        error_msg = str(e)
+        if "invalid session id" in error_msg or "session deleted" in error_msg:
+            logging.info("浏览器已关闭，任务结束")
+        else:
+            logging.error(f"Automation task error: {error_msg}")
+            raise
     finally:
         if driver:
             time.sleep(5)
             driver.quit()  # Close or not based on requirements
+            sys.exit(0)  # 退出Python进程
 
 
 # ==================== Start Service ====================
