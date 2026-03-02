@@ -1,6 +1,9 @@
 import time
 import sys
 import os
+import shutil
+import atexit
+import gc
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -13,6 +16,49 @@ import datetime
 
 app = Flask(__name__)
 
+# !!! 修改：获取程序运行目录
+if getattr(sys, 'frozen', False):
+    # 打包成exe运行时：获取exe所在目录
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    # 开发环境运行时：当前目录
+    BASE_DIR = os.path.abspath(".")
+
+# !!! 新增：在当前目录创建temp文件夹用于存放Chrome临时文件
+TEMP_DIR = os.path.join(BASE_DIR, 'temp')
+
+# 确保目录存在
+os.makedirs(TEMP_DIR, exist_ok=True)
+
+# !!! 新增：设置环境变量，告诉Chrome使用我们的临时目录
+os.environ['TMP'] = TEMP_DIR
+os.environ['TEMP'] = TEMP_DIR
+os.environ['TMPDIR'] = TEMP_DIR
+
+
+# !!! 新增：程序退出时清理临时文件
+def cleanup_temp_files():
+    """程序退出时清理临时文件"""
+    try:
+        if os.path.exists(TEMP_DIR):
+            # 删除temp目录下的所有内容，但保留目录本身
+            for item in os.listdir(TEMP_DIR):
+                item_path = os.path.join(TEMP_DIR, item)
+                try:
+                    if os.path.isfile(item_path):
+                        os.remove(item_path)
+                    elif os.path.isdir(item_path):
+                        shutil.rmtree(item_path, ignore_errors=True)
+                except Exception as e:
+                    print(f"清理临时文件失败 {item_path}: {e}")
+            print(f"临时文件夹清理完成: {TEMP_DIR}")
+    except Exception as e:
+        print(f"清理临时文件失败: {e}")
+
+
+# 注册退出时的清理函数
+atexit.register(cleanup_temp_files)
+
 
 # 获取打包后的资源路径
 def get_resource_path(relative_path):
@@ -21,7 +67,7 @@ def get_resource_path(relative_path):
         # PyInstaller创建临时文件夹_MEIPASS
         base_path = sys._MEIPASS
     except Exception:
-        base_path = os.path.abspath(".")
+        base_path = BASE_DIR
 
     return os.path.join(base_path, relative_path)
 
@@ -33,32 +79,82 @@ app.template_folder = template_dir
 
 def get_log_path():
     """获取日志文件路径，确保输出到exe同级目录"""
-    if getattr(sys, 'frozen', False):
-        # 打包成exe运行时：获取exe所在目录
-        exe_dir = os.path.dirname(sys.executable)
-    else:
-        # 开发环境运行时：当前目录
-        exe_dir = os.path.abspath(".")
-
-    # 确保目录存在
-    if not os.path.exists(exe_dir):
-        os.makedirs(exe_dir)
-
-    return os.path.join(exe_dir, 'booking_automation.log')
+    return os.path.join(BASE_DIR, 'booking_automation.log')
 
 
 # 使用新的日志路径
 log_file_path = get_log_path()
 
-# 配置logging
+# !!! 修改：配置logging，添加文件大小限制
+from logging.handlers import RotatingFileHandler
+
+# 使用轮转文件处理器，限制日志文件大小
+handler = RotatingFileHandler(
+    log_file_path,
+    maxBytes=5 * 1024 * 1024,  # 5MB
+    backupCount=2,
+    encoding='utf-8'
+)
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(log_file_path, encoding='utf-8'),
+        handler,
         logging.StreamHandler()
     ]
 )
+
+# !!! 新增：创建全局driver列表以便管理
+_active_drivers = []
+
+
+# !!! 新增：安全关闭driver
+def safe_quit_driver(driver):
+    """安全关闭driver并清理资源"""
+    if driver and driver in _active_drivers:
+        try:
+            # 先关闭所有窗口
+            try:
+                if len(driver.window_handles) > 0:
+                    for handle in driver.window_handles[:]:
+                        driver.switch_to.window(handle)
+                        driver.close()
+            except:
+                pass
+
+            # 退出driver
+            driver.quit()
+
+            # 从列表中移除
+            _active_drivers.remove(driver)
+
+            logging.info(f"Driver已关闭 (剩余活跃: {len(_active_drivers)})")
+        except Exception as e:
+            logging.error(f"关闭driver时出错: {e}")
+        finally:
+            # 删除引用
+            try:
+                del driver
+            except:
+                pass
+
+
+# !!! 新增：清理所有driver
+def cleanup_all_drivers():
+    """清理所有活跃的driver"""
+    logging.info(f"开始清理所有driver (共{len(_active_drivers)}个)")
+
+    drivers = _active_drivers[:]  # 创建副本
+    for driver in drivers:
+        safe_quit_driver(driver)
+
+    gc.collect()
+    logging.info("所有driver已清理")
+
+
+# 注册退出时清理所有driver
+atexit.register(cleanup_all_drivers)
 
 
 # ==================== Flask Routes ====================
@@ -74,6 +170,7 @@ def after_request(response):
     response.headers.add('Access-Control-Allow-Origin', '*')
     response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
     response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS, GET')
+    response.headers.add('Connection', 'close')  # !!! 新增：强制关闭连接
     return response
 
 
@@ -147,7 +244,7 @@ def select_facility(driver, facility_name):
         "patrick": "Patrick Port Botany"
     }
 
-    facility = facility_map.get(facility_name)  # 默认值
+    facility = facility_map.get(facility_name)
     select.select_by_visible_text(facility)
 
     # Click Accept
@@ -278,6 +375,8 @@ def book_single_container(driver, container, fresh_frequency, start_time):
             ))
         ).click()
 
+    time.sleep(3)
+
     # Select zone
     return select_zone_with_retry(driver, select_time, container['type'], fresh_frequency, start_time, container_id)
 
@@ -310,10 +409,12 @@ def select_zone_with_retry(driver, zone_time, container_type, fresh_frequency, s
                     EC.presence_of_element_located((By.XPATH, ".//div[@class='link_box' and text()='Select']"))
                 )
                 driver.execute_script("arguments[0].click();", select_button)
-                logging.info(f"当前时间:{datetime.datetime.now()}, container：{container_id} 尝试预定{zone_time}点, 预定成功")
+                logging.info(
+                    f"当前时间:{datetime.datetime.now()}, container：{container_id} 尝试预定{zone_time}点, 预定成功")
                 selected = True
             else:
-                logging.info(f"当前时间:{datetime.datetime.now()}, container：{container_id} 尝试预定{zone_time}点, 但当前没有余量，准备第{retry_count}次重试")
+                logging.info(
+                    f"当前时间:{datetime.datetime.now()}, container：{container_id} 尝试预定{zone_time}点, 但当前没有余量，准备第{retry_count}次重试")
                 refresh = WebDriverWait(driver, 10).until(
                     EC.element_to_be_clickable((By.ID, "SlotsRefresh"))
                 )
@@ -348,11 +449,13 @@ def auto_booking_func(data):
 
     driver = None
     try:
+        # !!! 修改：使用标准webdriver创建，但通过环境变量控制临时目录
         driver = webdriver.Chrome()
+        _active_drivers.append(driver)  # 记录driver
 
         # Login process
         login_vbs(driver, username, password)
-        select_facility(driver,facility)
+        select_facility(driver, facility)
 
         if facility == "dpw":
             go_to_container_list(driver)
@@ -378,6 +481,8 @@ def auto_booking_func(data):
             # Select containers for booking
             select_containers_for_booking(driver, containers)
 
+            time.sleep(1)
+
             # Click start booking
             start_btn = WebDriverWait(driver, 10).until(
                 EC.element_to_be_clickable((By.ID, "start_booking"))
@@ -390,17 +495,13 @@ def auto_booking_func(data):
                 if not success:
                     logging.warning(f"Container {container['containerId']} booking failed")
 
-            #此处注释可以不走到最终确认
+            # 此处注释可以不走到最终确认
             # Click Confirm
-            WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.ID, "Confirm"))
-            ).click()
-        elif facility == "patrick":
-            # accept_btn = WebDriverWait(driver, 10).until(
-            #     EC.element_to_be_clickable((By.ID, "Accept"))
-            # )
-            # accept_btn.click()
+            # WebDriverWait(driver, 10).until(
+            #     EC.element_to_be_clickable((By.ID, "Confirm"))
+            # ).click()
 
+        elif facility == "patrick":
             time.sleep(5)
 
             book_btn = WebDriverWait(driver, 10).until(
@@ -408,18 +509,17 @@ def auto_booking_func(data):
             )
             book_btn.click()
 
-            type = "IMPORT" if containers['type'] == 0 else "EXPORT"
+            booking_type = "IMPORT" if containers['type'] == 0 else "EXPORT"
 
             select_type = Select(driver.find_element(By.ID, "BOOKINGTYPE"))
-
-            # 通过 value 属性选中
-            select_type.select_by_value(type)
+            select_type.select_by_value(booking_type)
 
             time.sleep(3)
 
             select_date = Select(driver.find_element(By.ID, "BOOKINGDATE"))
             select_date_time_group = containers['date'].split(":")[0].split("/")
-            select_date_input = select_date_time_group[2] + "-" + select_date_time_group[1] + "-" + select_date_time_group[0]
+            select_date_input = select_date_time_group[2] + "-" + select_date_time_group[1] + "-" + \
+                                select_date_time_group[0]
             select_date.select_by_value(select_date_input)
 
             # Patrick的界面只能停留3分钟，所以在界面前开始等
@@ -439,13 +539,14 @@ def auto_booking_func(data):
             order_times = []
             for slot in containers['slots']:
                 order_times.append({
-                    "time":slot['time'],
-                    "count": slot['count']})
+                    "time": slot['time'],
+                    "count": slot['count']
+                })
 
             task_done = False
             while not task_done:
-                for order_time in order_times[:]:  # 关键：使用 [:] 创建副本
-                    # 然后获取第二个td（可用票数）
+                for order_time in order_times[:]:
+                    # 获取可用票数
                     slots_xpath = f"//td[text()='{order_time['time']}' and not(@class)]/following-sibling::td[1]"
                     slots_element = WebDriverWait(driver, 10).until(
                         EC.presence_of_element_located((By.XPATH, slots_xpath))
@@ -455,7 +556,7 @@ def auto_booking_func(data):
                     try:
                         slots_int = int(slots_text)
                     except ValueError:
-                        print(f"时段 {order_time['time']} 的可用票数格式错误: {slots_text}")
+                        logging.error(f"时段 {order_time['time']} 的可用票数格式错误: {slots_text}")
                         continue
 
                     if slots_int > 0:
@@ -464,15 +565,13 @@ def auto_booking_func(data):
                         try:
                             timezone_select = Select(driver.find_element(By.ID, select_id))
                         except:
-                            print(f"找不到select: {select_id}")
+                            logging.error(f"找不到select: {select_id}")
                             continue
 
                         need_count = int(order_time['count'])
 
                         if slots_int >= need_count:
-                            # 可以满足全部需求
                             timezone_select.select_by_value(str(need_count))
-
                             timezone_book_btn = WebDriverWait(driver, 10).until(
                                 EC.element_to_be_clickable((By.ID, f"btnBook_{select_date_input}_{order_time['time']}"))
                             )
@@ -482,14 +581,15 @@ def auto_booking_func(data):
                                 EC.element_to_be_clickable((By.ID, "Continue"))
                             )
                             continue_book_btn.click()
-                            logging.info(f"当前时间：{datetime.datetime.now()}, 时段 {order_time['time']}: 成功预订 {need_count} 张票")
-                            order_times.remove(order_time)  # 从原列表删除
+                            logging.info(
+                                f"当前时间：{datetime.datetime.now()}, 时段 {order_time['time']}: 成功预订 {need_count} 张票")
+                            order_times.remove(order_time)
                         else:
-                            # 只能预订部分
                             timezone_select.select_by_value(str(slots_int))
                             remaining = need_count - slots_int
                             order_time['count'] = str(remaining)
-                            logging.info(f"当前时间：{datetime.datetime.now()}, 时段 {order_time['time']}: 预订 {slots_int} 张票，还需 {remaining} 张")
+                            logging.info(
+                                f"当前时间：{datetime.datetime.now()}, 时段 {order_time['time']}: 预订 {slots_int} 张票，还需 {remaining} 张")
                     else:
                         logging.info(f"当前时间：{datetime.datetime.now()}, 时段 {order_time['time']}: 无余票")
 
@@ -510,12 +610,15 @@ def auto_booking_func(data):
             logging.info("浏览器已关闭，任务结束")
         else:
             logging.error(f"Automation task error: {error_msg}")
-            raise
     finally:
+        # !!! 修改：使用安全的driver关闭函数，移除os._exit(0)
         if driver:
-            time.sleep(5)
-            driver.quit()  # Close or not based on requirements
-            os._exit(0)  # 退出Python进程
+            safe_quit_driver(driver)
+
+        # 强制垃圾回收
+        gc.collect()
+
+        logging.info("任务结束，资源已清理")
 
 
 # ==================== Start Service ====================
@@ -523,15 +626,21 @@ def open_browser():
     """自动打开浏览器"""
     import webbrowser
     import time
-    time.sleep(1.5)  # 等待Flask完全启动
+    time.sleep(1.5)
     webbrowser.open('http://127.0.0.1:5000')
 
 
 if __name__ == "__main__":
     logging.info("Starting Flask service...")
 
+    # !!! 新增：启动前清理之前的临时文件
+    cleanup_temp_files()
+
+    logging.info(f"临时目录: {TEMP_DIR}")
+    logging.info(f"日志文件: {log_file_path}")
+
     # 在新线程中打开浏览器
     threading.Thread(target=open_browser, daemon=True).start()
 
     # 启动Flask
-    app.run(debug=False, port=5000)  # 生产环境关闭debug
+    app.run(debug=False, port=5000)
