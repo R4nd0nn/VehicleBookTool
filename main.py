@@ -367,11 +367,13 @@ def auto_booking_func(data):
                 add_container_to_system(driver, container)
                 time.sleep(1)
 
+            time.sleep(3)
+
             WebDriverWait(driver, 10).until(
                 EC.element_to_be_clickable((By.ID, "Refresh"))
             ).click()
 
-            time.sleep(1)
+            time.sleep(3)
 
             # Select containers for booking
             select_containers_for_booking(driver, containers)
