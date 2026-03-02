@@ -195,37 +195,32 @@ def login_vbs(driver, username, password):
     driver.get("https://www.1-stop.biz")
 
     # Click Launch button
-    launch_btn = WebDriverWait(driver, 10).until(
+    WebDriverWait(driver, 10).until(
         EC.element_to_be_clickable((By.XPATH, "//a[@href='https://www.1-stop.biz/launch']"))
-    )
-    launch_btn.click()
+    ).click()
 
     # Click Vehicle Booking System
-    vbs_btn = WebDriverWait(driver, 10).until(
+    WebDriverWait(driver, 10).until(
         EC.element_to_be_clickable((By.XPATH, "//a[@href='https://vbs.1-stop.biz/SignIn.aspx']"))
-    )
-    vbs_btn.click()
+    ).click()
 
     # Switch to new window
     driver.switch_to.window(driver.window_handles[-1])
 
     # Enter username and password
-    username_input = WebDriverWait(driver, 10).until(
+    WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.ID, "username"))
-    )
-    username_input.send_keys(username)
+    ).send_keys(username)
 
-    password_input = WebDriverWait(driver, 10).until(
+    WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.ID, "password"))
-    )
-    password_input.send_keys(password)
+    ).send_keys(password)
 
     # Click Continue
-    continue_btn = driver.find_element(
+    driver.find_element(
         By.XPATH,
         "//button[text()='Continue' and not(contains(@class, 'ulp-hidden-form-submit-button'))]"
-    )
-    continue_btn.click()
+    ).click()
 
     logging.info("Login successful")
 
@@ -248,20 +243,18 @@ def select_facility(driver, facility_name):
     select.select_by_visible_text(facility)
 
     # Click Accept
-    accept_btn = WebDriverWait(driver, 10).until(
+    WebDriverWait(driver, 10).until(
         EC.element_to_be_clickable((By.ID, "Accept"))
-    )
-    accept_btn.click()
+    ).click()
 
 
 def go_to_container_list(driver):
     """Navigate to Container List page"""
     logging.info("Navigating to Container List page")
 
-    container_list_btn = WebDriverWait(driver, 10).until(
+    WebDriverWait(driver, 10).until(
         EC.element_to_be_clickable((By.LINK_TEXT, "Container List"))
-    )
-    container_list_btn.click()
+    ).click()
 
     # Wait for table to load
     WebDriverWait(driver, 10).until(
@@ -283,10 +276,9 @@ def add_container_to_system(driver, container_info):
     logging.info(f"Adding container: {container_info['containerId']}")
 
     # Click add button
-    add_btn = WebDriverWait(driver, 10).until(
+    WebDriverWait(driver, 10).until(
         EC.element_to_be_clickable((By.ID, "show_add_containers"))
-    )
-    add_btn.click()
+    ).click()
 
     # Handle select selection
     value_select = "IMPORT" if container_info['type'] == 0 else "EXPORT"
@@ -306,10 +298,9 @@ def add_container_to_system(driver, container_info):
     select.select_by_value(value_select)
 
     # Enter Container ID
-    textarea = WebDriverWait(driver, 10).until(
+    WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.ID, "CBIUploadConatinersForm___CONTAINERS"))
-    )
-    textarea.send_keys(container_info['containerId'])
+    ).send_keys(container_info['containerId'])
 
     # Click add
     WebDriverWait(driver, 10).until(
@@ -415,16 +406,18 @@ def select_zone_with_retry(driver, zone_time, container_type, fresh_frequency, s
             else:
                 logging.info(
                     f"当前时间:{datetime.datetime.now()}, container：{container_id} 尝试预定{zone_time}点, 但当前没有余量，准备第{retry_count}次重试")
-                refresh = WebDriverWait(driver, 10).until(
+                WebDriverWait(driver, 10).until(
                     EC.element_to_be_clickable((By.ID, "SlotsRefresh"))
-                )
-                refresh.click()
+                ).click()
                 time.sleep(fresh_frequency)
 
         except Exception as e:
             logging.error(f"Retry {retry_count}, exception occurred: {str(e)}")
+            if retry_count > 10:
+                sys.exit(0)
             try:
                 driver.find_element(By.ID, "SlotsRefresh").click()
+
             except:
                 pass
             time.sleep(fresh_frequency)
@@ -451,6 +444,9 @@ def auto_booking_func(data):
     try:
         # !!! 修改：使用标准webdriver创建，但通过环境变量控制临时目录
         driver = webdriver.Chrome()
+
+        driver.maximize_window()
+
         _active_drivers.append(driver)  # 记录driver
 
         # Login process
@@ -459,6 +455,8 @@ def auto_booking_func(data):
 
         if facility == "dpw":
             go_to_container_list(driver)
+
+            time.sleep(3)
 
             # Get existing containers
             existing_containers = get_existing_containers(driver)
@@ -481,33 +479,34 @@ def auto_booking_func(data):
             # Select containers for booking
             select_containers_for_booking(driver, containers)
 
-            time.sleep(1)
+            time.sleep(3)
+
+            driver.execute_script("window.scrollTo(0, 0);")
 
             # Click start booking
-            start_btn = WebDriverWait(driver, 10).until(
+            WebDriverWait(driver, 10).until(
                 EC.element_to_be_clickable((By.ID, "start_booking"))
-            )
-            start_btn.click()
+            ).click()
 
             # Book each container
             for container in containers:
                 success = book_single_container(driver, container, fresh_frequency, start_time)
+                time.sleep(2)
                 if not success:
                     logging.warning(f"Container {container['containerId']} booking failed")
 
             # 此处注释可以不走到最终确认
             # Click Confirm
-            # WebDriverWait(driver, 10).until(
-            #     EC.element_to_be_clickable((By.ID, "Confirm"))
-            # ).click()
+            WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.ID, "Confirm"))
+            ).click()
 
         elif facility == "patrick":
             time.sleep(5)
 
-            book_btn = WebDriverWait(driver, 10).until(
+            WebDriverWait(driver, 10).until(
                 EC.element_to_be_clickable((By.XPATH, "//a[@href='SearchBookSlots.aspx?mnitm=154142190']"))
-            )
-            book_btn.click()
+            ).click()
 
             booking_type = "IMPORT" if containers['type'] == 0 else "EXPORT"
 
@@ -528,10 +527,9 @@ def auto_booking_func(data):
             if book_time_gap_second > 0:
                 time.sleep(book_time_gap_second)
 
-            search_btn = WebDriverWait(driver, 10).until(
+            WebDriverWait(driver, 10).until(
                 EC.element_to_be_clickable((By.ID, "Search"))
-            )
-            search_btn.click()
+            ).click()
 
             # Switch to new window
             driver.switch_to.window(driver.window_handles[-1])
@@ -572,15 +570,13 @@ def auto_booking_func(data):
 
                         if slots_int >= need_count:
                             timezone_select.select_by_value(str(need_count))
-                            timezone_book_btn = WebDriverWait(driver, 10).until(
+                            WebDriverWait(driver, 10).until(
                                 EC.element_to_be_clickable((By.ID, f"btnBook_{select_date_input}_{order_time['time']}"))
-                            )
-                            timezone_book_btn.click()
+                            ).click()
 
-                            continue_book_btn = WebDriverWait(driver, 10).until(
+                            WebDriverWait(driver, 10).until(
                                 EC.element_to_be_clickable((By.ID, "Continue"))
-                            )
-                            continue_book_btn.click()
+                            ).click()
                             logging.info(
                                 f"当前时间：{datetime.datetime.now()}, 时段 {order_time['time']}: 成功预订 {need_count} 张票")
                             order_times.remove(order_time)
@@ -596,10 +592,9 @@ def auto_booking_func(data):
                 if len(order_times) == 0:
                     task_done = True
                 else:
-                    refresh_btn = WebDriverWait(driver, 10).until(
+                    WebDriverWait(driver, 10).until(
                         EC.element_to_be_clickable((By.ID, "refreshSlots_" + select_date_input))
-                    )
-                    refresh_btn.click()
+                    ).click()
                     time.sleep(fresh_frequency)
 
         logging.info("All booking tasks completed")
